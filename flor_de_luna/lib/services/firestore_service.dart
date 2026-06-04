@@ -13,7 +13,6 @@ class FirestoreService {
   static Stream<List<PedidoModel>> streamPedidos() {
     return _db
         .collection('pedidos')
-        .orderBy('dataEntrega')
         .snapshots()
         .map((snap) => snap.docs.map((doc) => _pedidoFromDoc(doc)).toList());
   }

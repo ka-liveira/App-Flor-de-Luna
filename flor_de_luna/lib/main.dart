@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'screens/estoque_screen.dart';
 import 'screens/historico_screen.dart';
 import 'screens/financeiro_screen.dart';
+import 'screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,7 +39,38 @@ class FlorDeLunaApp extends StatelessWidget {
         textTheme: GoogleFonts.montserratTextTheme(),
         useMaterial3: true,
       ),
-      home: const MainNavigation(),
+      home: const AuthWrapper(),
+    );
+  }
+}
+
+/// Verifica se há usuário logado e redireciona para a tela correta.
+class AuthWrapper extends StatelessWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        // Aguardando resposta do Firebase
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: Color(0xFFF9EFE1),
+            body: Center(
+              child: CircularProgressIndicator(color: Color(0xFF3C6246)),
+            ),
+          );
+        }
+
+        // Usuário logado → vai para o app
+        if (snapshot.hasData && snapshot.data != null) {
+          return const MainNavigation();
+        }
+
+        // Não logado → vai para o login
+        return const LoginScreen();
+      },
     );
   }
 }
@@ -58,11 +91,14 @@ class _MainNavigationState extends State<MainNavigation> {
     HistoricoScreen(),
     FinanceiroScreen(),
   ];
-
-  @override
+@override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _telas[_indiceAtual],
+      // Trocamos o acesso direto por IndexedStack para reter o estado das telas
+      body: IndexedStack(
+        index: _indiceAtual,
+        children: _telas,
+      ),
       bottomNavigationBar: NavigationBar(
         backgroundColor: Colors.white,
         indicatorColor: const Color(0xFFF39AA5).withOpacity(0.3),

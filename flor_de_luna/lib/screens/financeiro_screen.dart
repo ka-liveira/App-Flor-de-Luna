@@ -19,8 +19,8 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
   @override
   void initState() {
     super.initState();
-    // Inicializa focando no mês atual abreviado (ex: "jun")
-    _mesSelecionado = DateFormat('MMM', 'pt_BR').format(DateTime.now());
+    // Inicializa focando estritamente no mês atual (ex: "jun") de forma limpa.
+    _mesSelecionado = DateFormat('MMM', 'pt_BR').format(DateTime.now()).replaceAll('.', '').trim().toLowerCase();
   }
 
   Future<void> _acaoMenu(String acao, PedidoModel pedido) async {
@@ -162,7 +162,8 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     return StreamBuilder<List<PedidoModel>>(
       stream: FirestoreService.streamPedidos(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        // SOLUÇÃO DO NAVEGADOR: Só mostra loading na primeira carga. Se já tem dados na memória, não pisca mais!
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Scaffold(
             backgroundColor: Color(0xFFF9EFE1),
             body: Center(child: CircularProgressIndicator(color: Color(0xFF3C6246))),
@@ -177,14 +178,13 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
 
         final pedidosReal = snapshot.data ?? [];
 
-        // Filtra os pedidos com base no mês selecionado no gráfico
+        // FILTRAGEM UNIFICADA POR DATA DE ENTREGA (Isola o mês sem acumular anteriores)
         final pedidosFiltrados = pedidosReal.where((p) {
           if (_mesSelecionado == null) return true;
-          final mesPedido = DateFormat('MMM', 'pt_BR').format(p.dataPedido);
-          return mesPedido.toLowerCase() == _mesSelecionado!.toLowerCase();
+          final mesPedido = DateFormat('MMM', 'pt_BR').format(p.dataEntrega).replaceAll('.', '').trim().toLowerCase();
+          return mesPedido == _mesSelecionado;
         }).toList();
 
-        // Valores calculados dinamicamente com base no filtro do mês para o Dashboard superior
         final double faturamentoBruto = pedidosFiltrados.fold(0, (s, p) => s + p.valorCobrado);
         final double totalRecebido = pedidosFiltrados.fold(0, (s, p) => s + p.valorPago);
         final double aReceber = pedidosFiltrados.fold(0, (s, p) => s + p.valorRestante);
@@ -205,7 +205,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                   _cabecalho(faturamentoBruto, totalRecebido, aReceber),
                   const SizedBox(height: 20),
                   GraficoMesesDinamico(
-                    pedidos: pedidosReal,
+                    pedidos: pedidosReal, // Passa a lista bruta para renderizar MAI, JUN, JUL de uma vez
                     mesSelecionadoInicial: _mesSelecionado,
                     onMesAlterado: (novoMes) {
                       setState(() {
@@ -214,10 +214,18 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                     },
                   ),
                   const SizedBox(height: 24),
-                  _tituloSecao('Valores a Receber Geral'),
+                  _tituloSecao(_mesSelecionado == null ? 'Valores a Receber' : 'Valores a Receber de ${_mesSelecionado!.toUpperCase()}'),
                   const SizedBox(height: 12),
-                  ...devedores.map(_cardDevedor),
-                  if (devedores.isEmpty) _estadoVazio(),
+                  ...devedores.where((p) {
+                    if (_mesSelecionado == null) return true;
+                    final mesPedido = DateFormat('MMM', 'pt_BR').format(p.dataEntrega).replaceAll('.', '').trim().toLowerCase();
+                    return mesPedido == _mesSelecionado;
+                  }).map(_cardDevedor),
+                  if (devedores.where((p) {
+                    if (_mesSelecionado == null) return true;
+                    final mesPedido = DateFormat('MMM', 'pt_BR').format(p.dataEntrega).replaceAll('.', '').trim().toLowerCase();
+                    return mesPedido == _mesSelecionado;
+                  }).isEmpty) _estadoVazio(),
                 ],
               ),
             ),
@@ -228,7 +236,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
   }
 
   Widget _cabecalho(double faturamento, double totalRecebido, double pendente) {
-    String sufixoMes = _mesSelecionado != null ? ' (${_mesSelecionado!.toUpperCase()})' : '';
+    String sufixoVisual = _mesSelecionado != null ? ' (${_mesSelecionado!.toUpperCase()})' : ' (GERAL)';
 
     return Container(
       width: double.infinity,
@@ -240,8 +248,8 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Financeiro$sufixoMes', style: GoogleFonts.montserrat(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-          Text(DateFormat("MMMM 'de' yyyy", 'pt_BR').format(DateTime.now()), style: GoogleFonts.montserrat(color: Colors.white70, fontSize: 13)),
+          Text('Financeiro$sufixoVisual', style: GoogleFonts.montserrat(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(_mesSelecionado == null ? 'Balanço Geral acumulado' : 'Exibindo faturamento estrito deste mês', style: GoogleFonts.montserrat(color: Colors.white70, fontSize: 13)),
           const SizedBox(height: 20),
           Row(
             children: [
@@ -363,13 +371,13 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
-        child: Text('Tudo quitado! Nenhum valor pendente.', style: GoogleFonts.montserrat(fontSize: 14, color: Colors.grey)),
+        child: Text('Nenhum valor pendente neste filtro.', style: GoogleFonts.montserrat(fontSize: 14, color: Colors.grey)),
       ),
     );
   }
 }
 
-// --- COMPONENTE DO GRÁFICO PURIFICADO (APENAS BARRAS DE SELEÇÃO) ---
+// --- GRÁFICO ATUALIZADO POR DATA DE ENTREGA ---
 class GraficoMesesDinamico extends StatefulWidget {
   final List<PedidoModel> pedidos;
   final String? mesSelecionadoInicial;
@@ -396,23 +404,41 @@ class _GraficoMesesDinamicoState extends State<GraficoMesesDinamico> {
   }
 
   @override
+  void didUpdateWidget(covariant GraficoMesesDinamico oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.mesSelecionadoInicial != oldWidget.mesSelecionadoInicial) {
+      setState(() {
+        _mesSelecionado = widget.mesSelecionadoInicial;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final mesAtualStr = DateFormat('MMM', 'pt_BR').format(DateTime.now());
+    final mesAtualStr = DateFormat('MMM', 'pt_BR').format(DateTime.now()).replaceAll('.', '').trim().toLowerCase();
+    final os12Meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    
+    final Map<String, double> faturamentoPorMes = {};
 
-    final Map<String, double> recebidoPorMes = {};
-
+    // UNIFICAÇÃO DO CORPO DO GRÁFICO: Varre usando dataEntrega de forma limpa para a Web
     for (var p in widget.pedidos) {
-      final stringMes = DateFormat('MMM', 'pt_BR').format(p.dataPedido);
-      recebidoPorMes[stringMes] = (recebidoPorMes[stringMes] ?? 0.0) + p.valorPago;
+      String stringMes = DateFormat('MMM', 'pt_BR').format(p.dataEntrega).toLowerCase();
+      stringMes = stringMes.replaceAll('.', '').trim(); 
+      
+      if (os12Meses.contains(stringMes)) {
+        faturamentoPorMes[stringMes] = (faturamentoPorMes[stringMes] ?? 0.0) + p.valorCobrado;
+      }
     }
 
-    if (recebidoPorMes.isEmpty) {
-      recebidoPorMes[mesAtualStr] = 0.0;
+    if (!faturamentoPorMes.containsKey(mesAtualStr)) {
+      faturamentoPorMes[mesAtualStr] = 0.0;
     }
 
-    final listaMeses = recebidoPorMes.entries.toList();
-    final double maximo = recebidoPorMes.values.isNotEmpty
-        ? recebidoPorMes.values.reduce((a, b) => a > b ? a : b)
+    final listaMesesOrdenada = faturamentoPorMes.entries.toList()
+      ..sort((a, b) => os12Meses.indexOf(a.key).compareTo(os12Meses.indexOf(b.key)));
+
+    final double maximo = faturamentoPorMes.values.isNotEmpty
+        ? faturamentoPorMes.values.reduce((a, b) => a > b ? a : b)
         : 1.0;
 
     return Container(
@@ -433,16 +459,16 @@ class _GraficoMesesDinamicoState extends State<GraficoMesesDinamico> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: listaMeses.map((entry) {
+            children: listaMesesOrdenada.map((entry) {
               final nomeMes = entry.key;
-              final valorRecebido = entry.value;
-              final altura = maximo > 0 ? (valorRecebido / maximo) * 120 : 0.0;
-              final bool isMesAtual = nomeMes.toLowerCase() == mesAtualStr.toLowerCase();
+              final valorFaturamento = entry.value;
+              final altura = maximo > 0 ? (valorFaturamento / maximo) * 120 : 0.0;
+              
+              final bool isMesAtual = nomeMes == mesAtualStr;
               final bool isSelecionado = _mesSelecionado == nomeMes;
 
               return GestureDetector(
                 onTap: () {
-                  // Se clicar no mês já selecionado, desmarca ele e volta a exibir tudo (ou o comportamento padrão)
                   final novoMes = isSelecionado ? null : nomeMes;
                   setState(() {
                     _mesSelecionado = novoMes;
@@ -454,7 +480,7 @@ class _GraficoMesesDinamicoState extends State<GraficoMesesDinamico> {
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 250),
                       width: 48,
-                      height: altura < 5 ? 5 : altura,
+                      height: altura < 6 ? 6 : altura,
                       decoration: BoxDecoration(
                         color: isSelecionado
                             ? const Color(0xFFF39AA5)

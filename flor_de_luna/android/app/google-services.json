@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "960877383229",
+    "project_id": "app-flutter-flordeluna",
+    "storage_bucket": "app-flutter-flordeluna.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:960877383229:android:0086ae65b8d6bb727c6454",
+        "android_client_info": {
+          "package_name": "com.example.flor_de_luna"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBcqiwM8yqWs1GqYkedJJtDz7fWzt-2qyA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
