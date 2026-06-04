@@ -19,6 +19,7 @@ class PedidoModel {
   final String statusPagamento; // PENDENTE, PAGO_PARCIAL, QUITADO
   final String observacoes;
   final String tipoPedido; // BORDADO, ARTESANATO
+  final String? usuarioId; // <-- 1. ADICIONEI ESTA LINHA AQUI
 
   PedidoModel({
     required this.id,
@@ -37,6 +38,7 @@ class PedidoModel {
     required this.statusPagamento,
     required this.observacoes,
     this.tipoPedido = 'BORDADO',
+    this.usuarioId, 
   });
 
   double get valorRestante => valorCobrado - valorPago;

@@ -1,5 +1,6 @@
 // services/firestore_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // ADICIONADO PARA PEGAR O USUÁRIO LOGADO
 import '../models/pedido_model.dart';
 import '../models/linha_model.dart';
 import '../models/cliente_model.dart';
@@ -11,8 +12,12 @@ class FirestoreService {
   // ─── PEDIDOS ────────────────────────────────────────────────────
 
   static Stream<List<PedidoModel>> streamPedidos() {
+    // Captura o ID do usuário logado agora para isolar os dados
+    final String? usuarioAtualId = FirebaseAuth.instance.currentUser?.uid;
+
     return _db
         .collection('pedidos')
+        .where('usuarioId', isEqualTo: usuarioAtualId) // <--- FILTRO DE SEGURANÇA
         .snapshots()
         .map((snap) => snap.docs.map((doc) => _pedidoFromDoc(doc)).toList());
   }
@@ -93,7 +98,7 @@ class FirestoreService {
     await _db.collection('estoque_linhas').doc(id).delete();
   }
 
-  // ─── CONVERSORES ─────────────────────────────────────────────────
+  // ─── CONVERSORES ATUALIZADOS ─────────────────────────────────────
 
   static Map<String, dynamic> _pedidoToMap(PedidoModel p) {
     return {
@@ -118,6 +123,7 @@ class FirestoreService {
       'statusPagamento': p.statusPagamento,
       'observacoes': p.observacoes,
       'tipoPedido': p.tipoPedido,
+      'usuarioId': p.usuarioId, // <--- ADICIONADO NO MAPA DO BANCO
     };
   }
 
@@ -148,6 +154,7 @@ class FirestoreService {
       statusPagamento: data['statusPagamento'] ?? 'PENDENTE',
       observacoes: data['observacoes'] ?? '',
       tipoPedido: data['tipoPedido'] ?? 'BORDADO',
+      usuarioId: data['usuarioId'] as String?, // <--- MAPEADO DO BANCO PARA O MODELO
     );
   }
 }

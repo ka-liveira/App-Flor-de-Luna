@@ -19,7 +19,6 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
   @override
   void initState() {
     super.initState();
-    // Inicializa focando estritamente no mês atual (ex: "jun") de forma limpa.
     _mesSelecionado = DateFormat('MMM', 'pt_BR').format(DateTime.now()).replaceAll('.', '').trim().toLowerCase();
   }
 
@@ -76,6 +75,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                 statusPagamento: 'QUITADO',
                 observacoes: pedido.observacoes,
                 tipoPedido: pedido.tipoPedido,
+                usuarioId: pedido.usuarioId,
               );
               await FirestoreService.salvarPedido(pedidoQuitado);
               if (!mounted) return;
@@ -141,6 +141,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                 linhas: pedido.linhas, valorCobrado: pedido.valorCobrado, valorPago: novoTotal,
                 statusProducao: pedido.statusProducao, statusPagamento: novoStatus,
                 observacoes: pedido.observacoes, tipoPedido: pedido.tipoPedido,
+                usuarioId: pedido.usuarioId,
               );
               await FirestoreService.salvarPedido(pedidoAtualizado);
               valorCtrl.dispose();
@@ -162,7 +163,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     return StreamBuilder<List<PedidoModel>>(
       stream: FirestoreService.streamPedidos(),
       builder: (context, snapshot) {
-        // SOLUÇÃO DO NAVEGADOR: Só mostra loading na primeira carga. Se já tem dados na memória, não pisca mais!
+        // SOLUÇÃO DE INTERMITÊNCIA: Só exibe loading na primeira conexão física. Evita piscadas ao rodar setState.
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Scaffold(
             backgroundColor: Color(0xFFF9EFE1),
@@ -178,7 +179,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
 
         final pedidosReal = snapshot.data ?? [];
 
-        // FILTRAGEM UNIFICADA POR DATA DE ENTREGA (Isola o mês sem acumular anteriores)
+        // FILTRAGEM ESTREITA POR DATA DE ENTREGA
         final pedidosFiltrados = pedidosReal.where((p) {
           if (_mesSelecionado == null) return true;
           final mesPedido = DateFormat('MMM', 'pt_BR').format(p.dataEntrega).replaceAll('.', '').trim().toLowerCase();
@@ -205,7 +206,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                   _cabecalho(faturamentoBruto, totalRecebido, aReceber),
                   const SizedBox(height: 20),
                   GraficoMesesDinamico(
-                    pedidos: pedidosReal, // Passa a lista bruta para renderizar MAI, JUN, JUL de uma vez
+                    pedidos: pedidosReal,
                     mesSelecionadoInicial: _mesSelecionado,
                     onMesAlterado: (novoMes) {
                       setState(() {
@@ -377,7 +378,6 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
   }
 }
 
-// --- GRÁFICO ATUALIZADO POR DATA DE ENTREGA ---
 class GraficoMesesDinamico extends StatefulWidget {
   final List<PedidoModel> pedidos;
   final String? mesSelecionadoInicial;
@@ -420,7 +420,7 @@ class _GraficoMesesDinamicoState extends State<GraficoMesesDinamico> {
     
     final Map<String, double> faturamentoPorMes = {};
 
-    // UNIFICAÇÃO DO CORPO DO GRÁFICO: Varre usando dataEntrega de forma limpa para a Web
+    // UNIFICAÇÃO CRÍTICA: O Gráfico agora puxa por dataEntrega combinando com as telas financeiras
     for (var p in widget.pedidos) {
       String stringMes = DateFormat('MMM', 'pt_BR').format(p.dataEntrega).toLowerCase();
       stringMes = stringMes.replaceAll('.', '').trim(); 
