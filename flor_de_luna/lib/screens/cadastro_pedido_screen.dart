@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/linha_model.dart';
 import '../models/pedido_model.dart';
 import '../models/cliente_model.dart';
@@ -85,6 +86,10 @@ class _CadastroPedidoScreenState extends State<CadastroPedidoScreen> {
   double get _horasEstimadas => _totalPontos / _pontosPorHora;
   double get _precoSugerido => (_horasEstimadas * _valorHora) + _materialFixo;
   bool get _temCalculo => _larguraController.text.trim().isNotEmpty && _alturaController.text.trim().isNotEmpty;
+
+  // Filtra linhas disponíveis para seleção (exclui status COMPRAR)
+  List<LinhaModel> get _estoqueLinhasDisponiveis =>
+      _estoqueLinhas.where((l) => l.statusEstoque != 'COMPRAR').toList();
 
   @override
   void dispose() {
@@ -401,7 +406,8 @@ class _CadastroPedidoScreenState extends State<CadastroPedidoScreen> {
                 runSpacing: 6,
                 children: _linhasSelecionadas.map((l) {
                   return Chip(
-                    label: Text('${l.marca} ${l.codigo}', style: GoogleFonts.montserrat(fontSize: 11)),
+                    // Exibe apenas a cor no chip
+                    label: Text(l.nomeCor, style: GoogleFonts.montserrat(fontSize: 11)),
                     backgroundColor: const Color(0xFFF39AA5).withOpacity(0.15),
                     deleteIcon: const Icon(Icons.close, size: 14),
                     onDeleted: () => setState(() => _linhasSelecionadas.remove(l)),
@@ -570,7 +576,18 @@ class _CadastroPedidoScreenState extends State<CadastroPedidoScreen> {
   }
 
   void _modalAdicionarLinhas() {
-    if (_estoqueLinhas.isEmpty) return;
+    final linhasDisponiveis = _estoqueLinhasDisponiveis;
+    if (linhasDisponiveis.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Nenhuma linha disponível no estoque.', style: GoogleFonts.montserrat()),
+          backgroundColor: Colors.orange.shade700,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+      return;
+    }
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -584,22 +601,31 @@ class _CadastroPedidoScreenState extends State<CadastroPedidoScreen> {
             child: ListView.builder(
               shrinkWrap: true,
               padding: EdgeInsets.zero,
-              itemCount: _estoqueLinhas.length,
+              itemCount: linhasDisponiveis.length,
               itemBuilder: (_, i) {
-                final l = _estoqueLinhas[i];
-                final selecionada = _linhasSelecionadas.any((s) => s.codigo == l.codigo && s.marca == l.marca);
+                final l = linhasDisponiveis[i];
+                final selecionada = _linhasSelecionadas.any(
+                  (s) => s.codigo == l.codigo && s.marca == l.marca,
+                );
                 return CheckboxListTile(
                   value: selecionada,
                   activeColor: const Color(0xFF3C6246),
                   contentPadding: EdgeInsets.zero,
-                  title: Text('${l.marca} — ${l.codigo ?? l.nomeCor}', style: GoogleFonts.montserrat(fontSize: 13)),
+                  // Exibe apenas a cor da linha
+                  title: Text(l.nomeCor, style: GoogleFonts.montserrat(fontSize: 13)),
                   onChanged: (v) {
                     setModalState(() {
                       setState(() {
                         if (v == true) {
-                          _linhasSelecionadas.add(LinhaResumida(marca: l.marca, codigo: l.codigo ?? '', nomeCor: l.nomeCor));
+                          _linhasSelecionadas.add(LinhaResumida(
+                            marca: l.marca,
+                            codigo: l.codigo ?? '',
+                            nomeCor: l.nomeCor,
+                          ));
                         } else {
-                          _linhasSelecionadas.removeWhere((s) => s.codigo == l.codigo && s.marca == l.marca);
+                          _linhasSelecionadas.removeWhere(
+                            (s) => s.codigo == l.codigo && s.marca == l.marca,
+                          );
                         }
                       });
                     });
@@ -609,9 +635,15 @@ class _CadastroPedidoScreenState extends State<CadastroPedidoScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancelar', style: GoogleFonts.montserrat(color: Colors.grey.shade700, fontWeight: FontWeight.w500))),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancelar', style: GoogleFonts.montserrat(color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
+            ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3C6246), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF3C6246),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
               onPressed: () => Navigator.pop(context),
               child: Text('Confirmar', style: GoogleFonts.montserrat(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
@@ -620,8 +652,8 @@ class _CadastroPedidoScreenState extends State<CadastroPedidoScreen> {
       ),
     );
   }
-  
-Future<void> _salvarPedido() async {
+
+  Future<void> _salvarPedido() async {
     if (_clienteSelecionado == null || _dataEntrega == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Preencha o cliente e a data de entrega!', style: GoogleFonts.montserrat()), backgroundColor: Colors.red),
@@ -634,12 +666,12 @@ Future<void> _salvarPedido() async {
     final valorPago = double.tryParse(_entradaController.text.replaceAll(',', '.')) ?? 0.0;
     final statusPagamento = valorPago <= 0 ? 'PENDENTE' : (valorPago >= valorCobrado ? 'QUITADO' : 'PAGO_PARCIAL');
 
+    final String? usuarioLogadoId = FirebaseAuth.instance.currentUser?.uid;
+
     final pedido = PedidoModel(
       id: widget.pedido?.id ?? const Uuid().v4(),
       cliente: _clienteSelecionado!,
-      // CORREÇÃO CRÍTICA: Se for um pedido novo, a data de registro herda a mesma data selecionada para a entrega.
-      // Se for edição, mantém a data original em que o pedido foi criado.
-      dataPedido: widget.pedido?.dataPedido ?? _dataEntrega!,
+      dataPedido: widget.pedido?.dataPedido ?? DateTime.now(),
       dataEntrega: _dataEntrega!,
       tema: _temaController.text.trim().isEmpty ? 'Sem tema' : _temaController.text.trim(),
       textoBordar: _textoController.text.trim(),
@@ -653,6 +685,7 @@ Future<void> _salvarPedido() async {
       statusPagamento: statusPagamento,
       observacoes: _observacoesController.text.trim(),
       tipoPedido: _tipoPedidoAtivo,
+      usuarioId: widget.pedido?.usuarioId ?? usuarioLogadoId,
     );
 
     await FirestoreService.salvarPedido(pedido);
