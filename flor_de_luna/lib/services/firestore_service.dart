@@ -1,6 +1,6 @@
 // services/firestore_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // ADICIONADO PARA PEGAR O USUÁRIO LOGADO
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/pedido_model.dart';
 import '../models/linha_model.dart';
 import '../models/cliente_model.dart';
@@ -12,18 +12,25 @@ class FirestoreService {
   // ─── PEDIDOS ────────────────────────────────────────────────────
 
   static Stream<List<PedidoModel>> streamPedidos() {
-    // Captura o ID do usuário logado agora para isolar os dados
     final String? usuarioAtualId = FirebaseAuth.instance.currentUser?.uid;
 
+    // SEM orderBy aqui — evita exigir índice composto no Firestore.
+    // A ordenação é feita no lado do app (home_screen e historico_screen já fazem isso).
     return _db
         .collection('pedidos')
-        .where('usuarioId', isEqualTo: usuarioAtualId) // <--- FILTRO DE SEGURANÇA
+        .where('usuarioId', isEqualTo: usuarioAtualId)
         .snapshots()
         .map((snap) => snap.docs.map((doc) => _pedidoFromDoc(doc)).toList());
   }
 
   static Future<void> salvarPedido(PedidoModel pedido) async {
-    await _db.collection('pedidos').doc(pedido.id).set(_pedidoToMap(pedido));
+    // Garante que o usuarioId SEMPRE seja preenchido com o usuário logado atual,
+    // mesmo em pedidos antigos que não tinham esse campo.
+    final String? usuarioAtualId = FirebaseAuth.instance.currentUser?.uid;
+    await _db
+        .collection('pedidos')
+        .doc(pedido.id)
+        .set(_pedidoToMap(pedido, usuarioAtualId));
   }
 
   static Future<void> excluirPedido(String id) async {
@@ -98,9 +105,9 @@ class FirestoreService {
     await _db.collection('estoque_linhas').doc(id).delete();
   }
 
-  // ─── CONVERSORES ATUALIZADOS ─────────────────────────────────────
+  // ─── CONVERSORES ─────────────────────────────────────────────────
 
-  static Map<String, dynamic> _pedidoToMap(PedidoModel p) {
+  static Map<String, dynamic> _pedidoToMap(PedidoModel p, String? usuarioId) {
     return {
       'clienteId': p.cliente.id,
       'clienteNome': p.cliente.nome,
@@ -123,7 +130,8 @@ class FirestoreService {
       'statusPagamento': p.statusPagamento,
       'observacoes': p.observacoes,
       'tipoPedido': p.tipoPedido,
-      'usuarioId': p.usuarioId, // <--- ADICIONADO NO MAPA DO BANCO
+      // Usa o usuarioId do parâmetro (uid atual), com fallback para o que estava no modelo
+      'usuarioId': usuarioId ?? p.usuarioId,
     };
   }
 
@@ -154,7 +162,7 @@ class FirestoreService {
       statusPagamento: data['statusPagamento'] ?? 'PENDENTE',
       observacoes: data['observacoes'] ?? '',
       tipoPedido: data['tipoPedido'] ?? 'BORDADO',
-      usuarioId: data['usuarioId'] as String?, // <--- MAPEADO DO BANCO PARA O MODELO
+      usuarioId: data['usuarioId'] as String?,
     );
   }
 }
